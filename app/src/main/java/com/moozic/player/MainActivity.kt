@@ -5,6 +5,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,55 +22,140 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+data class Song(
+    val id: Long,
+    val title: String,
+    val artist: String,
+    val duration: Long
+)
 
 class MainActivity : ComponentActivity() {
 
-    private val requestAudioPermission =
+    private var hasPermission by mutableStateOf(false)
+
+    private val permissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
-            if (granted) {
-                loadMusic = true
-            }
+            hasPermission = granted
         }
-
-    private var loadMusic by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContent {
             MoozicApp(
-                hasPermission = loadMusic,
+                hasPermission = hasPermission,
                 onRequestPermission = {
-                    val permission = if (Build.VERSION.SDK_INT >= 33) {
-                        Manifest.permission.READ_MEDIA_AUDIO
-                    } else {
-                        Manifest.permission.READ_EXTERNAL_STORAGE
-                    }
+                    val permission =
+                        if (Build.VERSION.SDK_INT >= 33) {
+                            Manifest.permission.READ_MEDIA_AUDIO
+                        } else {
+                            Manifest.permission.READ_EXTERNAL_STORAGE
+                        }
 
                     if (ContextCompat.checkSelfPermission(
-                            this,
-                            permission
+                            this, permission
                         ) == PackageManager.PERMISSION_GRANTED
                     ) {
-                        loadMusic = true
+                        hasPermission = true
                     } else {
-                        requestAudioPermission.launch(permission)
+                        permissionLauncher.launch(permission)
                     }
-                }
+                },
+                onScanMusic = { scanMusic() }
             )
         }
     }
+
+    private suspend fun scanMusic(): List<Song> =
+        withContext(Dispatchers.IO) {
+            val songs = mutableListOf<Song>()
+
+            val collection =
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+
+            val projection = arrayOf(
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.DURATION
+            )
+
+            val selection =
+                "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+
+            val sortOrder =
+                "${MediaStore.Audio.Media.TITLE} ASC"
+
+            contentResolver.query(
+                collection,
+                projection,
+                selection,
+                null,
+                sortOrder
+            )?.use { cursor ->
+
+                val idColumn =
+                    cursor.getColumnIndexOrThrow(
+                        MediaStore.Audio.Media._ID
+                    )
+
+                val titleColumn =
+                    cursor.getColumnIndexOrThrow(
+                        MediaStore.Audio.Media.TITLE
+                    )
+
+                val artistColumn =
+                    cursor.getColumnIndexOrThrow(
+                        MediaStore.Audio.Media.ARTIST
+                    )
+
+                val durationColumn =
+                    cursor.getColumnIndexOrThrow(
+                        MediaStore.Audio.Media.DURATION
+                    )
+
+                while (cursor.moveToNext()) {
+                    songs.add(
+                        Song(
+                            id = cursor.getLong(idColumn),
+                            title = cursor.getString(titleColumn)
+                                ?: "Unknown title",
+                            artist = cursor.getString(artistColumn)
+                                ?: "Unknown artist",
+                            duration = cursor.getLong(durationColumn)
+                        )
+                    )
+                }
+            }
+
+            songs
+        }
 }
 
 @Composable
 fun MoozicApp(
     hasPermission: Boolean,
-    onRequestPermission: () -> Unit
+    onRequestPermission: () -> Unit,
+    onScanMusic: suspend () -> List<Song>
 ) {
     val background = Color(0xFF090909)
     val accent = Color(0xFFFF3434)
+
+    var songs by remember { mutableStateOf(emptyList<Song>()) }
+    var loading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(hasPermission) {
+        if (hasPermission) {
+            loading = true
+            songs = onScanMusic()
+            loading = false
+        }
+    }
 
     MaterialTheme {
         Surface(
@@ -101,23 +187,20 @@ fun MoozicApp(
                     fontSize = 24.sp
                 )
 
-                Spacer(Modifier.height(16.dp))
+                Text(
+                    "${songs.size} SONGS",
+                    color = Color.Gray,
+                    fontSize = 12.sp
+                )
 
-                if (!hasPermission) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
+                Spacer(Modifier.height(20.dp))
+
+                when {
+                    !hasPermission -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                "Your music starts here.",
-                                color = Color.White
-                            )
-
-                            Spacer(Modifier.height(12.dp))
-
                             Button(
                                 onClick = onRequestPermission,
                                 colors = ButtonDefaults.buttonColors(
@@ -128,28 +211,102 @@ fun MoozicApp(
                             }
                         }
                     }
-                } else {
-                    val songs = remember {
-                        mutableStateListOf<String>()
+
+                    loading -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = accent)
+                        }
                     }
 
-                    LaunchedEffect(Unit) {
-                        // Local music scanning will be connected next.
-                    }
+                    songs.isEmpty() -> {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                "No music found",
+                                color = Color.White,
+                                fontSize = 18.sp
+                            )
 
-                    if (songs.isEmpty()) {
-                        Text(
-                            "Music library is ready.",
-                            color = Color.Gray
-                        )
-                    } else {
-                        LazyColumn {
-                            items(songs) { song ->
-                                Text(
-                                    song,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(12.dp)
+                            Text(
+                                "Add audio files to your phone and scan again.",
+                                color = Color.Gray,
+                                fontSize = 13.sp
+                            )
+
+                            Spacer(Modifier.height(16.dp))
+
+                            Button(
+                                onClick = {
+                                    loading = true
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = accent
                                 )
+                            ) {
+                                Text("REFRESH LIBRARY")
+                            }
+                        }
+                    }
+
+                    else -> {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(songs, key = { it.id }) { song ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            Color(0xFF181818),
+                                            RoundedCornerShape(12.dp)
+                                        )
+                                        .padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(46.dp)
+                                            .background(
+                                                Color(0xFF292020),
+                                                RoundedCornerShape(10.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("♫", color = accent, fontSize = 25.sp)
+                                    }
+
+                                    Spacer(Modifier.width(12.dp))
+
+                                    Column(
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text(
+                                            song.title,
+                                            color = Color.White,
+                                            fontSize = 15.sp,
+                                            maxLines = 1
+                                        )
+
+                                        Text(
+                                            song.artist,
+                                            color = Color.Gray,
+                                            fontSize = 12.sp,
+                                            maxLines = 1
+                                        )
+                                    }
+
+                                    Text(
+                                        formatDuration(song.duration),
+                                        color = Color.Gray,
+                                        fontSize = 11.sp
+                                    )
+                                }
                             }
                         }
                     }
@@ -157,4 +314,11 @@ fun MoozicApp(
             }
         }
     }
+}
+
+fun formatDuration(duration: Long): String {
+    val totalSeconds = duration / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
 }
