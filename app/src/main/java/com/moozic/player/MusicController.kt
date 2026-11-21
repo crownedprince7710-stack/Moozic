@@ -4,7 +4,6 @@ package com.moozic.player
 import android.content.ComponentName
 import android.content.ContentUris
 import android.content.Context
-import android.net.Uri
 import android.provider.MediaStore
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -117,7 +116,8 @@ class MusicController(context: Context) {
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            errorMessage = error.message ?: "Unable to play this song"
+            errorMessage = error.message
+                ?: "Unable to play this song"
             isPlaying = false
         }
     }
@@ -132,6 +132,7 @@ class MusicController(context: Context) {
                     connectedController.addListener(playerListener)
 
                     isConnected = true
+                    syncQueue()
                     updatePlaybackInfo()
 
                 } catch (e: Exception) {
@@ -177,6 +178,31 @@ class MusicController(context: Context) {
             .build()
     }
 
+    private fun syncQueue() {
+        val player = controller ?: return
+
+        val updatedQueue = (0 until player.mediaItemCount).map { index ->
+            val item = player.getMediaItemAt(index)
+            val mediaId = item.mediaId.toLongOrNull()
+
+            val existingSong = queue.firstOrNull {
+                it.id == mediaId
+            }
+
+            existingSong ?: Song(
+                id = mediaId ?: index.toLong(),
+                title = item.mediaMetadata.title?.toString()
+                    ?: "Unknown title",
+                artist = item.mediaMetadata.artist?.toString()
+                    ?: "Unknown artist",
+                duration = 0L
+            )
+        }
+
+        queue.clear()
+        queue.addAll(updatedQueue)
+    }
+
     fun playQueue(
         songs: List<Song>,
         startIndex: Int
@@ -208,6 +234,31 @@ class MusicController(context: Context) {
         }
     }
 
+    fun playAt(index: Int) {
+        withController { player ->
+            if (index in 0 until player.mediaItemCount) {
+                player.seekTo(index, 0L)
+                player.play()
+            }
+        }
+    }
+
+    fun addToQueue(song: Song) {
+        errorMessage = null
+
+        withController { player ->
+            player.addMediaItem(createMediaItem(song))
+            queue.add(song)
+
+            if (player.mediaItemCount == 1) {
+                player.prepare()
+                player.play()
+            }
+
+            syncQueue()
+        }
+    }
+
     fun playNext(song: Song) {
         errorMessage = null
 
@@ -226,15 +277,49 @@ class MusicController(context: Context) {
                 createMediaItem(song)
             )
 
-            val queueInsertIndex =
-                insertIndex.coerceIn(0, queue.size)
-
-            queue.add(queueInsertIndex, song)
+            queue.add(
+                insertIndex.coerceIn(0, queue.size),
+                song
+            )
 
             if (player.mediaItemCount == 1) {
                 player.prepare()
                 player.play()
             }
+
+            syncQueue()
+        }
+    }
+
+    fun removeFromQueue(index: Int) {
+        withController { player ->
+            if (index in 0 until player.mediaItemCount) {
+                player.removeMediaItem(index)
+                syncQueue()
+                updatePlaybackInfo()
+            }
+        }
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        withController { player ->
+            if (
+                fromIndex in 0 until player.mediaItemCount &&
+                toIndex in 0 until player.mediaItemCount &&
+                fromIndex != toIndex
+            ) {
+                player.moveMediaItem(fromIndex, toIndex)
+                syncQueue()
+                updatePlaybackInfo()
+            }
+        }
+    }
+
+    fun clearQueue() {
+        withController { player ->
+            player.clearMediaItems()
+            queue.clear()
+            updatePlaybackInfo()
         }
     }
 
@@ -345,6 +430,8 @@ class MusicController(context: Context) {
             currentArtist = it.artist?.toString()
                 ?: "Unknown artist"
         }
+
+        syncQueue()
     }
 
     fun clearError() {
