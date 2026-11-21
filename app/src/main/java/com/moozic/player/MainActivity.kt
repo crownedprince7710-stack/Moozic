@@ -183,7 +183,10 @@ fun MoozicApp(
         mutableFloatStateOf(0f)
     }
 
-    // Refresh playback position while the player is active.
+    var showingQueue by remember {
+        mutableStateOf(false)
+    }
+
     LaunchedEffect(musicController) {
         while (true) {
             musicController.updatePlaybackInfo()
@@ -208,7 +211,8 @@ fun MoozicApp(
 
     val currentIndex = musicController.currentIndex
     val isPlaying = musicController.isPlaying
-    val hasCurrentSong = currentIndex in songs.indices
+    val queue = musicController.queue
+    val hasCurrentSong = currentIndex in queue.indices
 
     val duration = musicController.duration
     val currentPosition = musicController.currentPosition
@@ -245,7 +249,7 @@ fun MoozicApp(
                     letterSpacing = 2.sp
                 )
 
-                Spacer(Modifier.height(28.dp))
+                Spacer(Modifier.height(24.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -255,20 +259,22 @@ fun MoozicApp(
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            text = "Your Library",
+                            text = if (showingQueue) "Playing Queue"
+                            else "Your Library",
                             color = Color.White,
                             fontSize = 24.sp,
                             fontWeight = FontWeight.SemiBold
                         )
 
                         Text(
-                            text = "${songs.size} SONGS",
+                            text = if (showingQueue) "${queue.size} TRACKS"
+                            else "${songs.size} SONGS",
                             color = Color.Gray,
                             fontSize = 11.sp
                         )
                     }
 
-                    if (hasPermission) {
+                    if (!showingQueue && hasPermission) {
                         TextButton(
                             onClick = { scanVersion++ }
                         ) {
@@ -277,10 +283,66 @@ fun MoozicApp(
                     }
                 }
 
+                Spacer(Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            cardColor,
+                            RoundedCornerShape(12.dp)
+                        )
+                        .padding(4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(
+                                if (!showingQueue) accent
+                                else Color.Transparent,
+                                RoundedCornerShape(9.dp)
+                            )
+                            .clickable {
+                                showingQueue = false
+                            }
+                            .padding(vertical = 11.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "LIBRARY",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(
+                                if (showingQueue) accent
+                                else Color.Transparent,
+                                RoundedCornerShape(9.dp)
+                            )
+                            .clickable {
+                                showingQueue = true
+                            }
+                            .padding(vertical = 11.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "QUEUE (${queue.size})",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
                 Spacer(Modifier.height(14.dp))
 
                 when {
-                    !hasPermission -> {
+                    !showingQueue && !hasPermission -> {
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -298,7 +360,7 @@ fun MoozicApp(
                         }
                     }
 
-                    loading -> {
+                    !showingQueue && loading -> {
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -309,7 +371,7 @@ fun MoozicApp(
                         }
                     }
 
-                    scanError != null -> {
+                    !showingQueue && scanError != null -> {
                         Column(
                             modifier = Modifier
                                 .weight(1f)
@@ -333,37 +395,186 @@ fun MoozicApp(
                         }
                     }
 
-                    songs.isEmpty() -> {
-                        Column(
+                    !showingQueue && songs.isEmpty() -> {
+                        Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
+                            contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "No music found",
-                                color = Color.White,
-                                fontSize = 18.sp
+                                "No music found. Add audio files and scan again.",
+                                color = Color.Gray
                             )
+                        }
+                    }
 
-                            Spacer(Modifier.height(8.dp))
-
-                            Text(
-                                text = "Add audio files to your phone and scan again.",
-                                color = Color.Gray,
-                                fontSize = 13.sp
-                            )
-
-                            Spacer(Modifier.height(16.dp))
-
-                            Button(
-                                onClick = { scanVersion++ },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = accent
-                                )
+                    showingQueue && queue.isEmpty() -> {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text("SCAN AGAIN")
+                                Text(
+                                    "Your queue is empty",
+                                    color = Color.White,
+                                    fontSize = 18.sp
+                                )
+
+                                Spacer(Modifier.height(8.dp))
+
+                                Text(
+                                    "Add songs from your library.",
+                                    color = Color.Gray,
+                                    fontSize = 13.sp
+                                )
+
+                                TextButton(
+                                    onClick = { showingQueue = false }
+                                ) {
+                                    Text("BROWSE LIBRARY", color = accent)
+                                }
+                            }
+                        }
+                    }
+
+                    showingQueue -> {
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "UP NEXT",
+                                    color = accent,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                TextButton(
+                                    onClick = {
+                                        musicController.clearQueue()
+                                    }
+                                ) {
+                                    Text(
+                                        "CLEAR QUEUE",
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+
+                            LazyColumn(
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                itemsIndexed(
+                                    queue.toList(),
+                                    key = { index, song ->
+                                        "${song.id}_$index"
+                                    }
+                                ) { index, song ->
+
+                                    val isCurrent = index == currentIndex
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(
+                                                if (isCurrent) Color(0xFF302020)
+                                                else cardColor,
+                                                RoundedCornerShape(12.dp)
+                                            )
+                                            .clickable {
+                                                musicController.playAt(index)
+                                            }
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            if (isCurrent) "♫" else "${index + 1}",
+                                            color = accent,
+                                            fontSize = 16.sp,
+                                            modifier = Modifier.width(30.dp)
+                                        )
+
+                                        Column(
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(
+                                                song.title,
+                                                color = if (isCurrent) accent
+                                                else Color.White,
+                                                fontSize = 13.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+
+                                            Text(
+                                                song.artist,
+                                                color = Color.Gray,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Row {
+                                                TextButton(
+                                                    onClick = {
+                                                        if (index > 0) {
+                                                            musicController.moveQueueItem(
+                                                                index,
+                                                                index - 1
+                                                            )
+                                                        }
+                                                    },
+                                                    enabled = index > 0,
+                                                    contentPadding = PaddingValues(4.dp)
+                                                ) {
+                                                    Text("↑", color = Color.White)
+                                                }
+
+                                                TextButton(
+                                                    onClick = {
+                                                        if (index < queue.lastIndex) {
+                                                            musicController.moveQueueItem(
+                                                                index,
+                                                                index + 1
+                                                            )
+                                                        }
+                                                    },
+                                                    enabled = index < queue.lastIndex,
+                                                    contentPadding = PaddingValues(4.dp)
+                                                ) {
+                                                    Text("↓", color = Color.White)
+                                                }
+                                            }
+
+                                            TextButton(
+                                                onClick = {
+                                                    musicController.removeFromQueue(index)
+                                                },
+                                                contentPadding = PaddingValues(4.dp)
+                                            ) {
+                                                Text(
+                                                    "REMOVE",
+                                                    color = accent,
+                                                    fontSize = 9.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -378,59 +589,33 @@ fun MoozicApp(
                                 key = { _, song -> song.id }
                             ) { index, song ->
 
-                                val selected = currentIndex == index
-
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(
-                                            if (selected) Color(0xFF302020)
-                                            else cardColor,
-                                            RoundedCornerShape(12.dp)
-                                        )
-                                        .clickable {
-                                            musicController.playQueue(
-                                                songs,
-                                                index
-                                            )
-                                        }
-                                        .padding(13.dp),
+                                        .background(cardColor, RoundedCornerShape(12.dp))
+                                        .padding(12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-
-                                    Box(
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .background(
-                                                Color(0xFF292020),
-                                                RoundedCornerShape(10.dp)
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = if (selected && isPlaying) "♫"
-                                            else "♪",
-                                            color = accent,
-                                            fontSize = 24.sp
-                                        )
-                                    }
-
-                                    Spacer(Modifier.width(12.dp))
-
                                     Column(
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable {
+                                                musicController.playQueue(
+                                                    songs,
+                                                    index
+                                                )
+                                            }
                                     ) {
                                         Text(
-                                            text = song.title,
-                                            color = if (selected) accent
-                                            else Color.White,
+                                            song.title,
+                                            color = Color.White,
                                             fontSize = 14.sp,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
 
                                         Text(
-                                            text = song.artist,
+                                            song.artist,
                                             color = Color.Gray,
                                             fontSize = 12.sp,
                                             maxLines = 1,
@@ -438,11 +623,29 @@ fun MoozicApp(
                                         )
                                     }
 
-                                    Text(
-                                        text = formatDuration(song.duration),
-                                        color = Color.Gray,
-                                        fontSize = 11.sp
-                                    )
+                                    TextButton(
+                                        onClick = {
+                                            musicController.playNext(song)
+                                        }
+                                    ) {
+                                        Text(
+                                            "PLAY NEXT",
+                                            color = accent,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+
+                                    TextButton(
+                                        onClick = {
+                                            musicController.addToQueue(song)
+                                        }
+                                    ) {
+                                        Text(
+                                            "+ ADD",
+                                            color = Color.White,
+                                            fontSize = 10.sp
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -459,11 +662,10 @@ fun MoozicApp(
                                 Color(0xFF202020),
                                 RoundedCornerShape(16.dp)
                             )
-                            .padding(15.dp)
+                            .padding(14.dp)
                     ) {
-
                         Text(
-                            text = "NOW PLAYING",
+                            "NOW PLAYING",
                             color = accent,
                             fontSize = 10.sp,
                             letterSpacing = 1.5.sp
@@ -472,7 +674,7 @@ fun MoozicApp(
                         Spacer(Modifier.height(5.dp))
 
                         Text(
-                            text = musicController.currentTitle,
+                            musicController.currentTitle,
                             color = Color.White,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -481,12 +683,10 @@ fun MoozicApp(
                         )
 
                         Text(
-                            text = musicController.currentArtist,
+                            musicController.currentArtist,
                             color = Color.Gray,
                             fontSize = 12.sp
                         )
-
-                        Spacer(Modifier.height(12.dp))
 
                         Slider(
                             value = if (draggingProgress) sliderPosition else progress,
@@ -513,7 +713,7 @@ fun MoozicApp(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = formatDuration(
+                                formatDuration(
                                     if (draggingProgress) {
                                         (sliderPosition * duration).toLong()
                                     } else {
@@ -521,17 +721,17 @@ fun MoozicApp(
                                     }
                                 ),
                                 color = Color.Gray,
-                                fontSize = 11.sp
+                                fontSize = 10.sp
                             )
 
                             Text(
-                                text = formatDuration(duration),
+                                formatDuration(duration),
                                 color = Color.Gray,
-                                fontSize = 11.sp
+                                fontSize = 10.sp
                             )
                         }
 
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(8.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -606,10 +806,8 @@ fun MoozicApp(
                         }
 
                         if (musicController.errorMessage != null) {
-                            Spacer(Modifier.height(8.dp))
-
                             Text(
-                                text = musicController.errorMessage
+                                musicController.errorMessage
                                     ?: "Playback error",
                                 color = accent,
                                 fontSize = 12.sp
