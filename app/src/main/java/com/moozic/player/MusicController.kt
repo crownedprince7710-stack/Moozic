@@ -67,7 +67,7 @@ class MusicController(context: Context) {
     var repeatMode by mutableStateOf(Player.REPEAT_MODE_OFF)
         private set
 
-    var volume by mutableStateOf(1f)
+    var currentVolume by mutableStateOf(1f)
         private set
 
     var errorMessage by mutableStateOf<String?>(null)
@@ -168,6 +168,7 @@ class MusicController(context: Context) {
         )
 
         return MediaItem.Builder()
+            .setMediaId(song.id.toString())
             .setUri(uri)
             .setMediaMetadata(
                 MediaMetadata.Builder()
@@ -374,7 +375,7 @@ class MusicController(context: Context) {
     fun setVolume(value: Float) {
         val safeVolume = value.coerceIn(0f, 1f)
 
-        volume = safeVolume
+        currentVolume = safeVolume
 
         withController {
             it.volume = safeVolume
@@ -421,7 +422,7 @@ class MusicController(context: Context) {
 
         shuffleEnabled = player.shuffleModeEnabled
         repeatMode = player.repeatMode
-        volume = player.volume
+        currentVolume = player.volume
 
         player.currentMediaItem?.mediaMetadata?.let {
             currentTitle = it.title?.toString()
