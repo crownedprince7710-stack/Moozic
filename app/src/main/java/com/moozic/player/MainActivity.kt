@@ -2,6 +2,7 @@
 package com.moozic.player
 
 import android.Manifest
+import android.content.ContentUris
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -10,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -46,17 +49,20 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val permission = if (Build.VERSION.SDK_INT >= 33) {
+            Manifest.permission.READ_MEDIA_AUDIO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+
+        hasPermission = ContextCompat.checkSelfPermission(
+            this, permission
+        ) == PackageManager.PERMISSION_GRANTED
+
         setContent {
             MoozicApp(
                 hasPermission = hasPermission,
                 onRequestPermission = {
-                    val permission =
-                        if (Build.VERSION.SDK_INT >= 33) {
-                            Manifest.permission.READ_MEDIA_AUDIO
-                        } else {
-                            Manifest.permission.READ_EXTERNAL_STORAGE
-                        }
-
                     if (ContextCompat.checkSelfPermission(
                             this, permission
                         ) == PackageManager.PERMISSION_GRANTED
@@ -75,9 +81,6 @@ class MainActivity : ComponentActivity() {
         withContext(Dispatchers.IO) {
             val songs = mutableListOf<Song>()
 
-            val collection =
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-
             val projection = arrayOf(
                 MediaStore.Audio.Media._ID,
                 MediaStore.Audio.Media.TITLE,
@@ -92,32 +95,25 @@ class MainActivity : ComponentActivity() {
                 "${MediaStore.Audio.Media.TITLE} ASC"
 
             contentResolver.query(
-                collection,
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 projection,
                 selection,
                 null,
                 sortOrder
             )?.use { cursor ->
 
-                val idColumn =
-                    cursor.getColumnIndexOrThrow(
-                        MediaStore.Audio.Media._ID
-                    )
-
-                val titleColumn =
-                    cursor.getColumnIndexOrThrow(
-                        MediaStore.Audio.Media.TITLE
-                    )
-
-                val artistColumn =
-                    cursor.getColumnIndexOrThrow(
-                        MediaStore.Audio.Media.ARTIST
-                    )
-
-                val durationColumn =
-                    cursor.getColumnIndexOrThrow(
-                        MediaStore.Audio.Media.DURATION
-                    )
+                val idColumn = cursor.getColumnIndexOrThrow(
+                    MediaStore.Audio.Media._ID
+                )
+                val titleColumn = cursor.getColumnIndexOrThrow(
+                    MediaStore.Audio.Media.TITLE
+                )
+                val artistColumn = cursor.getColumnIndexOrThrow(
+                    MediaStore.Audio.Media.ARTIST
+                )
+                val durationColumn = cursor.getColumnIndexOrThrow(
+                    MediaStore.Audio.Media.DURATION
+                )
 
                 while (cursor.moveToNext()) {
                     songs.add(
@@ -146,10 +142,16 @@ fun MoozicApp(
     val background = Color(0xFF090909)
     val accent = Color(0xFFFF3434)
 
+    val context = LocalContext.current
+    val musicController = remember {
+        MusicController(context)
+    }
+
     var songs by remember { mutableStateOf(emptyList<Song>()) }
     var loading by remember { mutableStateOf(false) }
+    var scanVersion by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(hasPermission) {
+    LaunchedEffect(hasPermission, scanVersion) {
         if (hasPermission) {
             loading = true
             songs = onScanMusic()
@@ -242,9 +244,7 @@ fun MoozicApp(
                             Spacer(Modifier.height(16.dp))
 
                             Button(
-                                onClick = {
-                                    loading = true
-                                },
+                                onClick = { scanVersion++ },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = accent
                                 )
@@ -266,6 +266,19 @@ fun MoozicApp(
                                             Color(0xFF181818),
                                             RoundedCornerShape(12.dp)
                                         )
+                                        .clickable {
+                                            val songUri =
+                                                ContentUris.withAppendedId(
+                                                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                                                    song.id
+                                                )
+
+                                            musicController.play(
+                                                songUri,
+                                                song.title,
+                                                song.artist
+                                            )
+                                        }
                                         .padding(14.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -278,7 +291,11 @@ fun MoozicApp(
                                             ),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text("♫", color = accent, fontSize = 25.sp)
+                                        Text(
+                                            "♫",
+                                            color = accent,
+                                            fontSize = 25.sp
+                                        )
                                     }
 
                                     Spacer(Modifier.width(12.dp))
