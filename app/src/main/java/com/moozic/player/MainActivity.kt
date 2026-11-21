@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.media3.common.Player
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 data class Song(
@@ -174,6 +175,22 @@ fun MoozicApp(
         mutableStateOf<String?>(null)
     }
 
+    var draggingProgress by remember {
+        mutableStateOf(false)
+    }
+
+    var sliderPosition by remember {
+        mutableFloatStateOf(0f)
+    }
+
+    // Refresh playback position while the player is active.
+    LaunchedEffect(musicController) {
+        while (true) {
+            musicController.updatePlaybackInfo()
+            delay(500)
+        }
+    }
+
     LaunchedEffect(hasPermission, scanVersion) {
         if (hasPermission) {
             loading = true
@@ -192,6 +209,16 @@ fun MoozicApp(
     val currentIndex = musicController.currentIndex
     val isPlaying = musicController.isPlaying
     val hasCurrentSong = currentIndex in songs.indices
+
+    val duration = musicController.duration
+    val currentPosition = musicController.currentPosition
+
+    val progress = if (duration > 0L) {
+        (currentPosition.toFloat() / duration.toFloat())
+            .coerceIn(0f, 1f)
+    } else {
+        0f
+    }
 
     MaterialTheme {
         Surface(
@@ -245,10 +272,7 @@ fun MoozicApp(
                         TextButton(
                             onClick = { scanVersion++ }
                         ) {
-                            Text(
-                                "REFRESH",
-                                color = accent
-                            )
+                            Text("REFRESH", color = accent)
                         }
                     }
                 }
@@ -464,6 +488,51 @@ fun MoozicApp(
 
                         Spacer(Modifier.height(12.dp))
 
+                        Slider(
+                            value = if (draggingProgress) sliderPosition else progress,
+                            onValueChange = {
+                                draggingProgress = true
+                                sliderPosition = it
+                            },
+                            onValueChangeFinished = {
+                                musicController.seekTo(
+                                    (sliderPosition * duration).toLong()
+                                )
+                                draggingProgress = false
+                            },
+                            enabled = duration > 0L,
+                            colors = SliderDefaults.colors(
+                                thumbColor = accent,
+                                activeTrackColor = accent,
+                                inactiveTrackColor = Color.DarkGray
+                            )
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = formatDuration(
+                                    if (draggingProgress) {
+                                        (sliderPosition * duration).toLong()
+                                    } else {
+                                        currentPosition
+                                    }
+                                ),
+                                color = Color.Gray,
+                                fontSize = 11.sp
+                            )
+
+                            Text(
+                                text = formatDuration(duration),
+                                color = Color.Gray,
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -478,7 +547,7 @@ fun MoozicApp(
                                     "SHUFFLE",
                                     color = if (musicController.shuffleEnabled)
                                         accent else Color.Gray,
-                                    fontSize = 11.sp
+                                    fontSize = 10.sp
                                 )
                             }
 
@@ -487,10 +556,7 @@ fun MoozicApp(
                                     musicController.previous()
                                 }
                             ) {
-                                Text(
-                                    "PREV",
-                                    color = Color.White
-                                )
+                                Text("PREV", color = Color.White)
                             }
 
                             Button(
@@ -512,10 +578,7 @@ fun MoozicApp(
                                     musicController.next()
                                 }
                             ) {
-                                Text(
-                                    "NEXT",
-                                    color = Color.White
-                                )
+                                Text("NEXT", color = Color.White)
                             }
 
                             TextButton(
@@ -526,13 +589,13 @@ fun MoozicApp(
                                 val repeatText = when (
                                     musicController.repeatMode
                                 ) {
-                                    Player.REPEAT_MODE_ALL -> "REPEAT ALL"
-                                    Player.REPEAT_MODE_ONE -> "REPEAT ONE"
-                                    else -> "REPEAT OFF"
+                                    Player.REPEAT_MODE_ALL -> "ALL"
+                                    Player.REPEAT_MODE_ONE -> "ONE"
+                                    else -> "OFF"
                                 }
 
                                 Text(
-                                    repeatText,
+                                    "REPEAT $repeatText",
                                     color = if (
                                         musicController.repeatMode !=
                                         Player.REPEAT_MODE_OFF
