@@ -21,10 +21,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.media3.common.Player
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -168,25 +170,28 @@ fun MoozicApp(
         mutableIntStateOf(0)
     }
 
-    var currentIndex by remember {
-        mutableIntStateOf(-1)
-    }
-
-    var isPlaying by remember {
-        mutableStateOf(false)
+    var scanError by remember {
+        mutableStateOf<String?>(null)
     }
 
     LaunchedEffect(hasPermission, scanVersion) {
         if (hasPermission) {
             loading = true
+            scanError = null
 
             try {
                 songs = onScanMusic()
+            } catch (e: Exception) {
+                scanError = e.message ?: "Unable to scan music files"
             } finally {
                 loading = false
             }
         }
     }
+
+    val currentIndex = musicController.currentIndex
+    val isPlaying = musicController.isPlaying
+    val hasCurrentSong = currentIndex in songs.indices
 
     MaterialTheme {
         Surface(
@@ -202,43 +207,49 @@ fun MoozicApp(
                 Text(
                     text = "MOOZIC",
                     color = accent,
-                    fontSize = 32.sp
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold
                 )
 
                 Text(
                     text = "YOUR MUSIC. YOUR RULES.",
                     color = Color.Gray,
-                    fontSize = 11.sp
+                    fontSize = 11.sp,
+                    letterSpacing = 2.sp
                 )
 
                 Spacer(Modifier.height(28.dp))
-
-                Text(
-                    text = "Your Library",
-                    color = Color.White,
-                    fontSize = 24.sp
-                )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "${songs.size} SONGS",
-                        color = Color.Gray,
-                        fontSize = 12.sp,
+                    Column(
                         modifier = Modifier.weight(1f)
-                    )
+                    ) {
+                        Text(
+                            text = "Your Library",
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Text(
+                            text = "${songs.size} SONGS",
+                            color = Color.Gray,
+                            fontSize = 11.sp
+                        )
+                    }
 
                     if (hasPermission) {
-                        Text(
-                            text = "REFRESH",
-                            color = accent,
-                            fontSize = 12.sp,
-                            modifier = Modifier.clickable {
-                                scanVersion++
-                            }.padding(8.dp)
-                        )
+                        TextButton(
+                            onClick = { scanVersion++ }
+                        ) {
+                            Text(
+                                "REFRESH",
+                                color = accent
+                            )
+                        }
                     }
                 }
 
@@ -247,7 +258,9 @@ fun MoozicApp(
                 when {
                     !hasPermission -> {
                         Box(
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
                             contentAlignment = Alignment.Center
                         ) {
                             Button(
@@ -263,16 +276,44 @@ fun MoozicApp(
 
                     loading -> {
                         Box(
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
                             contentAlignment = Alignment.Center
                         ) {
                             CircularProgressIndicator(color = accent)
                         }
                     }
 
+                    scanError != null -> {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = scanError ?: "Something went wrong",
+                                color = Color.White
+                            )
+
+                            Button(
+                                onClick = { scanVersion++ },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = accent
+                                )
+                            ) {
+                                Text("TRY AGAIN")
+                            }
+                        }
+                    }
+
                     songs.isEmpty() -> {
                         Column(
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
@@ -324,8 +365,6 @@ fun MoozicApp(
                                             RoundedCornerShape(12.dp)
                                         )
                                         .clickable {
-                                            currentIndex = index
-                                            isPlaying = true
                                             musicController.playQueue(
                                                 songs,
                                                 index
@@ -386,9 +425,7 @@ fun MoozicApp(
                     }
                 }
 
-                if (currentIndex in songs.indices) {
-                    val currentSong = songs[currentIndex]
-
+                if (hasCurrentSong) {
                     Spacer(Modifier.height(12.dp))
 
                     Column(
@@ -404,21 +441,23 @@ fun MoozicApp(
                         Text(
                             text = "NOW PLAYING",
                             color = accent,
-                            fontSize = 10.sp
+                            fontSize = 10.sp,
+                            letterSpacing = 1.5.sp
                         )
 
                         Spacer(Modifier.height(5.dp))
 
                         Text(
-                            text = currentSong.title,
+                            text = musicController.currentTitle,
                             color = Color.White,
                             fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
 
                         Text(
-                            text = currentSong.artist,
+                            text = musicController.currentArtist,
                             color = Color.Gray,
                             fontSize = 12.sp
                         )
@@ -427,19 +466,26 @@ fun MoozicApp(
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
+                            horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            TextButton(
+                                onClick = {
+                                    musicController.toggleShuffle()
+                                }
+                            ) {
+                                Text(
+                                    "SHUFFLE",
+                                    color = if (musicController.shuffleEnabled)
+                                        accent else Color.Gray,
+                                    fontSize = 11.sp
+                                )
+                            }
 
                             TextButton(
                                 onClick = {
-                                    if (currentIndex > 0) {
-                                        currentIndex--
-                                        isPlaying = true
-                                        musicController.previous()
-                                    }
-                                },
-                                enabled = currentIndex > 0
+                                    musicController.previous()
+                                }
                             ) {
                                 Text(
                                     "PREV",
@@ -447,17 +493,9 @@ fun MoozicApp(
                                 )
                             }
 
-                            Spacer(Modifier.width(12.dp))
-
                             Button(
                                 onClick = {
-                                    if (isPlaying) {
-                                        musicController.pause()
-                                        isPlaying = false
-                                    } else {
-                                        musicController.resume()
-                                        isPlaying = true
-                                    }
+                                    musicController.togglePlayPause()
                                 },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = accent
@@ -469,23 +507,50 @@ fun MoozicApp(
                                 )
                             }
 
-                            Spacer(Modifier.width(12.dp))
-
                             TextButton(
                                 onClick = {
-                                    if (currentIndex < songs.lastIndex) {
-                                        currentIndex++
-                                        isPlaying = true
-                                        musicController.next()
-                                    }
-                                },
-                                enabled = currentIndex < songs.lastIndex
+                                    musicController.next()
+                                }
                             ) {
                                 Text(
                                     "NEXT",
                                     color = Color.White
                                 )
                             }
+
+                            TextButton(
+                                onClick = {
+                                    musicController.toggleRepeat()
+                                }
+                            ) {
+                                val repeatText = when (
+                                    musicController.repeatMode
+                                ) {
+                                    Player.REPEAT_MODE_ALL -> "REPEAT ALL"
+                                    Player.REPEAT_MODE_ONE -> "REPEAT ONE"
+                                    else -> "REPEAT OFF"
+                                }
+
+                                Text(
+                                    repeatText,
+                                    color = if (
+                                        musicController.repeatMode !=
+                                        Player.REPEAT_MODE_OFF
+                                    ) accent else Color.Gray,
+                                    fontSize = 9.sp
+                                )
+                            }
+                        }
+
+                        if (musicController.errorMessage != null) {
+                            Spacer(Modifier.height(8.dp))
+
+                            Text(
+                                text = musicController.errorMessage
+                                    ?: "Playback error",
+                                color = accent,
+                                fontSize = 12.sp
+                            )
                         }
                     }
                 }
